@@ -2,6 +2,8 @@
 
 Proyecto desarrollado para la materia Organización del Computador de la Universidad Metropolitana. El objetivo es implementar un conversor de sistemas numéricos en ensamblador MIPS para correr en el simulador MARM.
 
+Grupo F: Luis Guerra
+
 ## Características Principales
 
 Manejo de Entradas: Los números se ingresan como cadenas de caracteres (strings), permitiendo detectar signos y partes fraccionarias.
