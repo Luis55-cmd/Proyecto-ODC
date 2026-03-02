@@ -6,6 +6,122 @@
 # ---------------------------------------------------------
 # 1. SECCIÓN DE MACROS
 # ---------------------------------------------------------
+
+.macro contar_decimales(%buffer, %reg_contador)
+    la $t0, %buffer
+    li %reg_contador, 0
+    li $t2, 0 # Bandera de punto encontrado
+loop_count:
+    lb $t1, 0($t0)
+    beq $t1, 10, fin_count
+    beq $t1, 0, fin_count
+    
+    beq $t1, '.', punto_encontrado
+    
+    # Si ya pasamos el punto, contar
+    beq $t2, 1, incrementar_contador
+    j next_count
+
+punto_encontrado:
+    li $t2, 1
+    j next_count
+
+incrementar_contador:
+    addi %reg_contador, %reg_contador, 1
+    
+next_count:
+    addi $t0, $t0, 1
+    j loop_count
+fin_count:
+.end_macro
+
+.macro ascii_a_fraccionario(%buffer, %reg_resultado)
+    la $t0, %buffer
+    li %reg_resultado, 0
+    li $t2, 0                   # Bandera de signo (0 = pos, 1 = neg)
+    
+    lb $t1, 0($t0)              # Leer primer carácter
+    
+    # Manejo de Signos
+    beq $t1, '-', es_neg_f
+    beq $t1, '+', es_pos_f
+    j conv_loop_f
+
+es_neg_f:
+    li $t2, 1
+    addi $t0, $t0, 1
+    j conv_loop_f
+
+es_pos_f:
+    addi $t0, $t0, 1
+
+conv_loop_f:
+    lb $t1, 0($t0)
+    
+    # Verificar fin de cadena
+    beq $t1, 10, aplicar_signo_f
+    beq $t1, 0, aplicar_signo_f
+    
+    # SI ES PUNTO, IGNORARLO
+    beq $t1, '.', punto_decimal
+    
+    # Convertir ASCII a número: valor = (valor * 10) + (caracter - '0')
+    sub $t1, $t1, 48
+    mul %reg_resultado, %reg_resultado, 10
+    add %reg_resultado, %reg_resultado, $t1
+    
+punto_decimal:
+    addi $t0, $t0, 1
+    j conv_loop_f
+
+aplicar_signo_f:
+    beq $t2, 0, fin_macro_f
+    neg %reg_resultado, %reg_resultado
+fin_macro_f:
+.end_macro
+
+.macro ascii_a_entero(%buffer, %reg_resultado)
+    la $t0, %buffer             # Puntero al inicio del buffer
+    li %reg_resultado, 0        # Inicializar el acumulador en 0
+    li $t2, 0                   # Bandera de signo (0 = pos, 1 = neg)
+
+    lb $t1, 0($t0)              # Leer primer carácter
+    
+    # Manejo de Signos
+    beq $t1, '-', es_neg        # Si es '-', marcar como negativo
+    beq $t1, '+', es_pos        # Si es '+', saltar al siguiente
+    j conversion_loop           # Si es número, empezar conversión directamente
+
+es_neg:
+    li $t2, 1                   # Marcar bandera como negativo
+    addi $t0, $t0, 1            # Avanzar puntero
+    j conversion_loop
+
+es_pos:
+    addi $t0, $t0, 1            # Solo avanzar puntero
+
+conversion_loop:
+    lb $t1, 0($t0)              # Leer carácter actual
+    
+    # Verificar fin de cadena (enter o nulo)
+    beq $t1, 10, aplicar_signo  
+    beq $t1, 0, aplicar_signo   
+
+    # Convertir ASCII a número: valor = (valor * 10) + (caracter - '0')
+    sub $t1, $t1, 48            # Restar 48 (ASCII de '0') para obtener el dígito
+    mul %reg_resultado, %reg_resultado, 10
+    add %reg_resultado, %reg_resultado, $t1
+    
+    addi $t0, $t0, 1            # Siguiente carácter
+    j conversion_loop
+
+aplicar_signo:
+    beq $t2, 0, fin_macro       # Si no era negativo, terminar
+    neg %reg_resultado, %reg_resultado # Si era negativo, multiplicar por -1
+
+fin_macro:
+.end_macro
+
 .macro validar_fraccionario(%buffer, %registro_error)
     li %registro_error, 0       # 0 = OK, 1 = Error
     li $t2, 0                   # Contador de puntos decimales
@@ -157,7 +273,7 @@ leer_entero:
     
     # Si $s1 es 1, hubo un error de caracteres
     beq $s1, 1, error_en_numero
-
+    li $t9, 1 # <--- INDICAR QUE ES ENTERO
     j procesar_y_mostrar
 
 error_en_numero:
@@ -167,7 +283,18 @@ error_en_numero:
 leer_fraccionario:
     imprimir_texto(msg_frac)
     jal leer_string_usuario
+    
+    # Validamos lo que el usuario escribió en 'buffer'
+    validar_fraccionario(buffer, $s1)
+    
+    # Si $s1 es 1, error. Volvemos a pedir el número fraccionario
+    beq $s1, 1, error_en_frac
+    li $t9, 2                    # <--- INDICAR QUE ES FRACCIÓN
     j procesar_y_mostrar
+
+error_en_frac:
+    imprimir_texto(msg_err_num)
+    j leer_fraccionario  # Se queda aquí hasta que lo ponga bien
     
 salir_programa:
     imprimir_texto(msg_salir)
@@ -184,7 +311,21 @@ leer_string_usuario:
 
 # --- Lógica de conversión ---
 procesar_y_mostrar:
+    # Decidir qué macro usar basada en $t9
+    beq $t9, 2, usar_fraccionario
+    
+    # Si es entero:
+    ascii_a_entero(buffer, $s0)
+    j continuar_impresion
 
+usar_fraccionario:
+    # Si es fraccionario:
+    ascii_a_fraccionario(buffer, $s0)
+    contar_decimales(buffer, $s2)                
+    
+continuar_impresion:
+
+    # Ahora $s0 tiene el número (ej: -125). 
     imprimir_texto(out_bin)
     # Lógica...
     
@@ -192,7 +333,50 @@ procesar_y_mostrar:
     # Lógica...
     
     imprimir_texto(out_b10)
-    # Lógica...
+    
+    # 0. Imprimir signo
+    bltz $s0, print_neg
+    li $a0, '+'
+    j do_sign
+print_neg:
+    li $a0, '-'
+do_sign:
+    li $v0, 11
+    syscall
+    
+    # 1. Calcular valor absoluto
+    abs $t7, $s0  # El número sin punto
+    
+    # 2. Calcular la potencia de 10 basada en $s2 (número de decimales)
+    li $t8, 1
+    li $t3, 0
+pow_loop:
+    beq $t3, $s2, pow_fin
+    mul $t8, $t8, 10
+    addi $t3, $t3, 1
+    j pow_loop
+pow_fin:
+    # $t8 ahora tiene 10, 100, 1000, etc.
+
+    # 3. Separar parte entera y fraccionaria
+    div $t7, $t8
+    mflo $t5 # Parte entera
+    mfhi $t6 # Parte fraccionaria
+
+    # 4. Imprimir parte entera
+    move $a0, $t5
+    li $v0, 1
+    syscall
+
+    # 5. Imprimir punto
+    li $a0, '.'
+    li $v0, 11
+    syscall
+
+    # 6. Imprimir parte fraccionaria
+    move $a0, $t6
+    li $v0, 1
+    syscall
     
     imprimir_texto(out_oct)
     # Lógica...
