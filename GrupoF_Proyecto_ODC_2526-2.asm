@@ -6,6 +6,89 @@
 # ---------------------------------------------------------
 # 1. SECCIÓN DE MACROS
 # ---------------------------------------------------------
+.macro imprimir_binario_entero_8bits(%reg_valor)
+    # Imprime los 8 bits inferiores de un registro en complemento a 2
+    li $t0, 8                # Contador de bits
+    li $t1, 128              # Máscara inicial 10000000 (2^7)
+    
+loop_entera_f:
+    and $t2, %reg_valor, $t1 # Comparar valor con máscara
+    beqz $t2, print_cero_f
+    li $a0, '1'
+    j do_print_f
+print_cero_f:
+    li $a0, '0'
+do_print_f:
+    li $v0, 11
+    syscall
+    srl $t1, $t1, 1         # Desplazar máscara a la derecha
+    subi $t0, $t0, 1
+    bnez $t0, loop_entera_f
+.end_macro
+
+.macro imprimir_binario_punto_fijo(%reg_valor_crudo, %reg_num_decimales)
+    # --- 1. Separación de partes ---
+    # Calcular 10^%reg_num_decimales (divisor)
+    li $t8, 1                # $t8 como divisor
+    li $t3, 0                # Contador para potencia
+    li $t9, 10               # Base 10
+pow_loop_bin:
+    beq $t3, %reg_num_decimales, pow_fin_bin
+    mul $t8, $t8, $t9
+    addi $t3, $t3, 1
+    j pow_loop_bin
+pow_fin_bin:
+    
+    # Separar: $t5 = Parte Entera (con signo), $t6 = Parte Fraccionaria (con signo)
+    div %reg_valor_crudo, $t8
+    mflo $t5                # $t5 es Parte Entera (con signo)
+    mfhi $t6                # $t6 es Parte Fraccionaria (con signo)
+    
+    # --- 2. Imprimir Parte Entera en binario manual (8 bits, Complemento a 2) ---
+    li $t0, 8                # Contador de bits (8 bits entera)
+    li $t1, 128              # Máscara inicial 10000000 (2^7)
+    
+loop_entera:
+    and $t2, $t5, $t1       # Comparar parte entera con máscara
+    beqz $t2, print_cero_e
+    li $a0, '1'
+    j do_print_e
+print_cero_e:
+    li $a0, '0'
+do_print_e:
+    li $v0, 11
+    syscall
+    srl $t1, $t1, 1         # Desplazar máscara a la derecha
+    subi $t0, $t0, 1
+    bnez $t0, loop_entera
+
+    # --- 3. Imprimir Punto ---
+    li $a0, '.'
+    li $v0, 11
+    syscall
+
+    # --- 4. Imprimir Parte Fraccionaria (8 bits manual) ---
+    abs $t0, $t6            # magnitud positiva
+    li $t1, 8                # Contador de 8 bits
+loop_fraccionaria:
+    # Algoritmo: Fracción * 2
+    mul $t0, $t0, 2
+    
+    # ¿Es mayor o igual que el divisor ($t8)?
+    div $t0, $t8
+    mflo $t2                # Bit es el cociente
+    mfhi $t0                # Nuevo residuo es el resto
+    
+    # Imprimir bit
+    move $a0, $t2
+    addi $a0, $a0, 48       # Convertir 0/1 a '0'/'1'
+    li $v0, 11
+    syscall
+    
+    subi $t1, $t1, 1
+    bnez $t1, loop_fraccionaria
+.end_macro
+
 
 .macro contar_decimales(%buffer, %reg_contador)
     la $t0, %buffer
@@ -156,7 +239,7 @@ f_loop:
     j f_next
 
 f_punto:
-    addi $t2, $t2, 1            # Incrementamos contador de puntos
+    addi $t2, $t2, 1            # Incrementar contador de puntos
     li $t3, 1
     bgt $t2, $t3, f_error       # Si hay más de 1 punto, error
     j f_next
@@ -224,7 +307,7 @@ fin_v:
     msg_err_num: .asciiz "\nError: Formato de numero incorrecto. Intente de nuevo.\n"
     
     buffer_menu: .space 4        # Espacio para leer la opción como string
-    buffer:      .space 64       # Buffer para el número ingresado [cite: 30]
+    buffer:      .space 64       # Buffer para el número ingresado 
 
     # Etiquetas para el Output 
     out_bin:     .asciiz "\n-Binario en complemento a 2: "
@@ -314,20 +397,27 @@ procesar_y_mostrar:
     # Decidir qué macro usar basada en $t9
     beq $t9, 2, usar_fraccionario
     
-    # Si es entero:
+    # --- SI ES ENTERO (Opción 1): ---
     ascii_a_entero(buffer, $s0)
+    
+    imprimir_texto(out_bin)
+    
+    imprimir_binario_entero_8bits($s0)
+    
+    li $s2, 0
+    
     j continuar_impresion
 
 usar_fraccionario:
-    # Si es fraccionario:
+    # --- SI ES FRACCIONARIO (Opción 2): ---
     ascii_a_fraccionario(buffer, $s0)
-    contar_decimales(buffer, $s2)                
+    contar_decimales(buffer, $s2) # Esto llena $s2 con la cant. de decimales
+    
+    imprimir_texto(out_bin)
+    imprimir_binario_punto_fijo($s0, $s2)
+    j continuar_impresion              
     
 continuar_impresion:
-
-    # Ahora $s0 tiene el número (ej: -125). 
-    imprimir_texto(out_bin)
-    # Lógica...
     
     imprimir_texto(out_dec)
     # Lógica...
@@ -368,6 +458,8 @@ pow_fin:
     li $v0, 1
     syscall
 
+    beqz $s2, saltar_fraccion_b10
+    
     # 5. Imprimir punto
     li $a0, '.'
     li $v0, 11
@@ -377,6 +469,8 @@ pow_fin:
     move $a0, $t6
     li $v0, 1
     syscall
+
+saltar_fraccion_b10:
     
     imprimir_texto(out_oct)
     # Lógica...
@@ -384,9 +478,6 @@ pow_fin:
     imprimir_texto(out_hex)
     # Lógica...
 
-    # Salto de línea estético antes de volver al menú
-    li $v0, 4
-    la $a0, salto
-    syscall
+    imprimir_texto(salto)
 
     j menu_loop
