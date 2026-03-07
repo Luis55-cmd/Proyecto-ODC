@@ -6,6 +6,159 @@
 # ---------------------------------------------------------
 # 1. SECCIÓN DE MACROS
 # ---------------------------------------------------------
+.macro decimal_empaquetado_fraccional_hex(%reg_valor, %reg_signo, %reg_num_decimales)
+    # %reg_valor: Valor absoluto completo (ej: 275)
+    # %reg_signo: Bandera de signo (0 = pos, 1 = neg)
+    # %reg_num_decimales: Cantidad de decimales ($s2)
+    
+    # 1. Convertir el valor absoluto total a BCD y guardarlo en el buffer
+    move $t0, %reg_valor
+    li $t1, 0           # Contador de dígitos
+    la $t4, buffer_bcd  # Dirección del buffer temporal
+    
+conv_bcd_loop_f:
+    div $t0, $t0, 10    # Dividir valor por 10
+    mfhi $t3            # $t3 = resto (dígito actual)
+    
+    # Guardar dígito BCD (0-9) en buffer
+    sb $t3, 0($t4)
+    addi $t4, $t4, 1
+    addi $t1, $t1, 1
+    
+    bnez $t0, conv_bcd_loop_f
+    
+    # 2. Imprimir BCD en binario (4 bits por dígito) desde el buffer (reversa)
+    # $t1 = total de dígitos en el buffer
+    
+imprimir_bcd_loop:
+    subi $t4, $t4, 1
+    lb $t2, 0($t4)      # Cargar dígito BCD (0-9)
+    
+    # --- Imprimir 4 bits del dígito ---                
+    li $t5, 4           # Contador de bits (4 bits)
+    li $t6, 8           # Máscara inicial 1000 (2^3)
+    
+bits_loop:
+    and $t7, $t2, $t6   # Comparar dígito con máscara
+    beqz $t7, print_cero_bit
+    li $a0, '1'
+    j do_print_bit
+print_cero_bit:
+    li $a0, '0'
+do_print_bit:
+    li $v0, 11
+    syscall
+    
+    srl $t6, $t6, 1     # Desplazar máscara a la derecha
+    subi $t5, $t5, 1
+    bnez $t5, bits_loop                
+    
+    subi $t1, $t1, 1
+    bnez $t1, imprimir_bcd_loop
+    # 3. Imprimir Signo en Binario (C = 1100, D = 1101)
+    beq %reg_signo, 1, signo_negativo_f
+    # Signo positivo: C = 1100
+    li $a0, '1'
+    syscall
+    li $a0, '1'
+    syscall
+    li $a0, '0'
+    syscall
+    li $a0, '0'
+    syscall
+    j print_signo_f
+    
+signo_negativo_f:
+    # Signo negativo: D = 1101
+    li $a0, '1'
+    syscall
+    li $a0, '1'
+    syscall
+    li $a0, '0'
+    syscall
+    li $a0, '1'
+    syscall
+    
+print_signo_f:
+.end_macro
+
+
+.macro decimal_empaquetado_entero_hex(%reg_valor)
+    # 1. Obtener valor absoluto y guardar signo
+    abs $t0, %reg_valor    # $t0 = |valor|
+    
+    # 2. Convertir el valor absoluto a BCD (Binary Coded Decimal)
+    li $t1, 0           # Contador de dígitos
+    la $t2, buffer_bcd  # Dirección del buffer temporal
+    
+conv_bcd_loop_h:
+    div $t0, $t0, 10    # Dividir valor absoluto por 10
+    mfhi $t3            # $t3 = resto (dígito actual)
+    
+    # Guardar dígito BCD (0-9) en buffer
+    sb $t3, 0($t2)
+    addi $t2, $t2, 1
+    addi $t1, $t1, 1
+    
+    bnez $t0, conv_bcd_loop_h
+    
+    # 3. Imprimir BCD en binario (4 bits por dígito) desde el buffer (reversa)
+    # $t1 ahora tiene la cantidad de dígitos
+    
+imprimir_bcd_hex:
+    subi $t2, $t2, 1
+    lb $t3, 0($t2)      # Cargar dígito BCD (0-9)
+    
+    # --- Imprimir 4 bits del dígito ---
+    li $t5, 4           # Contador de bits (4 bits)
+    li $t6, 8           # Máscara inicial 1000 (2^3)
+    
+bits_loop_h:
+    and $t7, $t3, $t6   # Comparar dígito con máscara
+    beqz $t7, print_cero_bit_h
+    li $a0, '1'
+    j do_print_bit_h
+print_cero_bit_h:
+    li $a0, '0'
+do_print_bit_h:
+    li $v0, 11
+    syscall
+    
+    srl $t6, $t6, 1     # Desplazar máscara a la derecha
+    subi $t5, $t5, 1
+    bnez $t5, bits_loop_h
+    
+    subi $t1, $t1, 1
+    bnez $t1, imprimir_bcd_hex
+    
+    # 4. Imprimir Signo en Binario (C=1100 para +, D=1101 para -)
+    bltz %reg_valor, signo_negativo_h
+    
+    # Signo positivo: C = 1100
+    li $a0, '1'
+    syscall
+    li $a0, '1'
+    syscall
+    li $a0, '0'
+    syscall
+    li $a0, '0'
+    syscall
+    j fin_macro_h
+    
+signo_negativo_h:
+    # Signo negativo: D = 1101
+    li $a0, '1'
+    syscall
+    li $a0, '1'
+    syscall
+    li $a0, '0'
+    syscall
+    li $a0, '1'
+    syscall
+    
+fin_macro_h:
+.end_macro
+
 .macro imprimir_binario_entero_8bits(%reg_valor)
     # Imprime los 8 bits inferiores de un registro en complemento a 2
     li $t0, 8                # Contador de bits
@@ -29,7 +182,7 @@ do_print_f:
 .macro imprimir_binario_punto_fijo(%reg_valor_crudo, %reg_num_decimales)
     # --- 1. Separación de partes ---
     # Calcular 10^%reg_num_decimales (divisor)
-    li $t8, 1                # $t8 como divisor
+    li $t8, 1                # Usaremos $t8 como divisor
     li $t3, 0                # Contador para potencia
     li $t9, 10               # Base 10
 pow_loop_bin:
@@ -68,7 +221,7 @@ do_print_e:
     syscall
 
     # --- 4. Imprimir Parte Fraccionaria (8 bits manual) ---
-    abs $t0, $t6            # magnitud positiva
+    abs $t0, $t6            # Trabajamos con la magnitud positiva
     li $t1, 8                # Contador de 8 bits
 loop_fraccionaria:
     # Algoritmo: Fracción * 2
@@ -239,7 +392,7 @@ f_loop:
     j f_next
 
 f_punto:
-    addi $t2, $t2, 1            # Incrementar contador de puntos
+    addi $t2, $t2, 1            # Incrementamos contador de puntos
     li $t3, 1
     bgt $t2, $t3, f_error       # Si hay más de 1 punto, error
     j f_next
@@ -307,7 +460,8 @@ fin_v:
     msg_err_num: .asciiz "\nError: Formato de numero incorrecto. Intente de nuevo.\n"
     
     buffer_menu: .space 4        # Espacio para leer la opción como string
-    buffer:      .space 64       # Buffer para el número ingresado 
+    buffer:      .space 64       # Buffer para el número ingresado [cite: 30]
+    buffer_bcd: .space 32 # Espacio temporal para la conversión BCD
 
     # Etiquetas para el Output 
     out_bin:     .asciiz "\n-Binario en complemento a 2: "
@@ -401,7 +555,6 @@ procesar_y_mostrar:
     ascii_a_entero(buffer, $s0)
     
     imprimir_texto(out_bin)
-    
     imprimir_binario_entero_8bits($s0)
     
     li $s2, 0
@@ -419,9 +572,32 @@ usar_fraccionario:
     
 continuar_impresion:
     
+    # --- DECIMAL EMPAQUETADO ---
     imprimir_texto(out_dec)
-    # Lógica...
     
+    # Decidir qué macro usar basada en $t9 (1=entero, 2=fraccion)
+    beq $t9, 2, empaquetar_fraccion
+    
+    # Si es entero:
+    decimal_empaquetado_entero_hex($s0)
+    j continuar_base10
+
+empaquetar_fraccion:
+    # Si es fracción:
+    # 1. Obtener valor absoluto absoluto total ($s0 viene de ascii_a_fraccionario)
+    abs $t6, $s0
+    
+    # 2. Determinar signo de $s0 para la macro (0=pos, 1=neg)
+    li $t7, 0 # Asumimos positivo
+    bgtz $s0, es_pos_f_fin
+    li $t7, 1 # Es negativo
+es_pos_f_fin:
+    
+    decimal_empaquetado_fraccional_hex($t6, $t7, $s2)                
+    j continuar_base10
+
+continuar_base10:                
+    # --- BASE 10 ---
     imprimir_texto(out_b10)
     
     # 0. Imprimir signo
