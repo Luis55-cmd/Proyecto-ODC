@@ -6,6 +6,50 @@
 # ---------------------------------------------------------
 # 1. SECCIÓN DE MACROS
 # ---------------------------------------------------------
+
+
+.macro imprimir_octal_entero(%reg_valor)
+    # 1. Manejo del signo
+    move $t0, %reg_valor
+    bgez $t0, es_pos_oct
+    
+    # Si es negativo, imprimimos el signo '-'
+    li $a0, '-'
+    li $v0, 11
+    syscall
+    
+    # Convertimos a valor absoluto para la conversión
+    neg $t0, $t0                
+
+es_pos_oct:
+    # 2. Conversión a Octal (reversa)                
+    la $t1, buffer_bcd          # Usamos el buffer temporal para guardar los dígitos
+    li $t2, 0                   # Contador de dígitos
+
+convertir_octal_loop:
+    div $t0, $t0, 8             # Dividir por 8
+    mfhi $t3                    # Obtener resto (dígito octal)
+    
+    sb $t3, 0($t1)              # Guardar dígito
+    addi $t1, $t1, 1
+    addi $t2, $t2, 1
+    
+    bnez $t0, convertir_octal_loop
+
+    # 3. Impresión de dígitos (en orden correcto)
+imprimir_octal_loop:
+    subi $t1, $t1, 1
+    lb $a0, 0($t1)
+    
+    # Convertir dígito (0-7) a ASCII ('0'-'7')
+    addi $a0, $a0, 48
+    li $v0, 11
+    syscall
+    
+    subi $t2, $t2, 1
+    bnez $t2, imprimir_octal_loop
+.end_macro
+
 .macro decimal_empaquetado_fraccional_hex(%reg_valor, %reg_signo, %reg_num_decimales)
     # %reg_valor: Valor absoluto completo (ej: 275)
     # %reg_signo: Bandera de signo (0 = pos, 1 = neg)
@@ -648,12 +692,25 @@ pow_fin:
 
 saltar_fraccion_b10:
     
+    # --- OCTAL ---
     imprimir_texto(out_oct)
-    # Lógica...
+    # Solo procesamos octal si es la opción 1 (entero) según tu requerimiento
+    beq $t9, 1, octal_entero
+    # Si es fracción, podrías imprimir un mensaje o dejarlo vacío
+    j hex_final
+
+octal_entero:
+    imprimir_octal_entero($s0)
     
+hex_final:
+    # --- HEXADECIMAL ---
     imprimir_texto(out_hex)
-    # Lógica...
+    beq $t9, 1, hex_entero
+    j fin_ciclo
 
+hex_entero:
+    imprimir_hexadecimal_entero($s0)
+
+fin_ciclo:
     imprimir_texto(salto)
-
     j menu_loop
