@@ -6,7 +6,69 @@
 # ---------------------------------------------------------
 # 1. SECCIÓN DE MACROS
 # ---------------------------------------------------------
+.macro imprimir_hexadecimal_entero(%reg_valor)
 
+    move $t0, %reg_valor
+
+    bgez $t0, es_pos_hex
+
+    li $a0, '-'
+
+    li $v0, 11
+
+    syscall
+
+    neg $t0, $t0
+
+es_pos_hex:
+
+    la $t1, buffer_bcd
+
+    li $t2, 0
+
+conv_hex_loop:
+
+    div $t0, $t0, 16
+
+    mfhi $t3
+
+    sb $t3, 0($t1)
+
+    addi $t1, $t1, 1
+
+    addi $t2, $t2, 1
+
+    bnez $t0, conv_hex_loop
+
+print_hex_loop:
+
+    subi $t1, $t1, 1
+
+    lb $t3, 0($t1)
+
+    blt $t3, 10, hex_digito
+
+    addi $t3, $t3, 55    # Convertir 10-15 a 'A'-'F'
+
+    j hex_out
+
+hex_digito:
+
+    addi $t3, $t3, 48    # Convertir 0-9 a '0'-'9'
+
+hex_out:
+
+    move $a0, $t3
+
+    li $v0, 11
+
+    syscall
+
+    subi $t2, $t2, 1
+
+    bnez $t2, print_hex_loop
+
+.end_macro
 
 .macro imprimir_octal_entero(%reg_valor)
     # 1. Manejo del signo
