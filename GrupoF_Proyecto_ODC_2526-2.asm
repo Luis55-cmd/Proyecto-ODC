@@ -6,6 +6,43 @@
 # ---------------------------------------------------------
 # 1. SECCIÓN DE MACROS
 # ---------------------------------------------------------
+.macro imprimir_octal_fraccionario(%reg_valor_total, %reg_num_decimales)
+    # 1. Separar parte entera y fraccionaria
+    # Usamos la potencia de 10 calculada antes ($t8 ya tiene 10^decimales)
+    abs $t0, %reg_valor_total
+    div $t0, $t8
+    mflo $t1 # Parte entera absoluta
+    mfhi $t2 # Parte fraccionaria absoluta
+
+    # 2. Imprimir signo si el original era negativo
+    bgez %reg_valor_total, oct_f_pos
+    li $a0, '-'
+    li $v0, 11
+    syscall
+oct_f_pos:
+    # 3. Imprimir parte entera en Octal (reutilizando lógica de divisiones)
+    move $a0, $t1
+    jal sub_print_octal_simple # Subrutina para no repetir código
+
+    # 4. Punto decimal
+    li $a0, '.'
+    li $v0, 11
+    syscall
+
+    # 5. Parte fraccionaria (Multiplicaciones sucesivas por 8)
+    li $t3, 4 # Imprimiremos 4 dígitos octales de precisión
+loop_oct_f:
+    mul $t2, $t2, 8
+    div $t2, $t8
+    mflo $a0      # Dígito obtenido
+    mfhi $t2      # Nuevo residuo
+    addi $a0, $a0, 48
+    li $v0, 11
+    syscall
+    subi $t3, $t3, 1
+    bnez $t3, loop_oct_f
+.end_macro
+
 .macro imprimir_hexadecimal_entero(%reg_valor)
 
     move $t0, %reg_valor
