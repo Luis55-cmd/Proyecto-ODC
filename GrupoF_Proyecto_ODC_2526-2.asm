@@ -6,6 +6,46 @@
 # ---------------------------------------------------------
 # 1. SECCIÓN DE MACROS
 # ---------------------------------------------------------
+.macro imprimir_hex_fraccionario(%reg_valor_total, %reg_num_decimales)
+    abs $t0, %reg_valor_total
+    div $t0, $t8
+    mflo $t1 # Parte entera
+    mfhi $t2 # Parte fraccionaria
+
+    bgez %reg_valor_total, hex_f_pos
+    li $a0, '-'
+    li $v0, 11
+    syscall
+hex_f_pos:
+    # Parte entera en hex
+    move $a0, $t1
+    jal sub_print_hex_simple 
+
+    li $a0, '.'
+    li $v0, 11
+    syscall
+
+    # Parte fraccionaria (Multiplicaciones por 16)
+    li $t3, 4 # 4 dígitos hex de precisión
+loop_hex_f:
+    mul $t2, $t2, 16
+    div $t2, $t8
+    mflo $t4 # Dígito
+    mfhi $t2 # Residuo
+    
+    blt $t4, 10, hex_f_dig
+    addi $t4, $t4, 55 # A-F
+    j hex_f_out
+hex_f_dig:
+    addi $t4, $t4, 48 # 0-9
+hex_f_out:
+    move $a0, $t4
+    li $v0, 11
+    syscall
+    subi $t3, $t3, 1
+    bnez $t3, loop_hex_f
+.end_macro
+
 .macro imprimir_octal_fraccionario(%reg_valor_total, %reg_num_decimales)
     # 1. Separar parte entera y fraccionaria
     # Usamos la potencia de 10 calculada antes ($t8 ya tiene 10^decimales)
@@ -790,26 +830,92 @@ pow_fin:
     syscall
 
 saltar_fraccion_b10:
-    
     # --- OCTAL ---
     imprimir_texto(out_oct)
-    # Solo procesamos octal si es la opción 1 (entero) según tu requerimiento
-    beq $t9, 1, octal_entero
-    # Si es fracción, podrías imprimir un mensaje o dejarlo vacío
-    j hex_final
-
-octal_entero:
+    beq $t9, 1, oct_ent
+    imprimir_octal_fraccionario($s0, $s2)
+    j hex_label
+oct_ent:
     imprimir_octal_entero($s0)
-    
-hex_final:
+
+hex_label:
     # --- HEXADECIMAL ---
     imprimir_texto(out_hex)
-    beq $t9, 1, hex_entero
-    j fin_ciclo
-
-hex_entero:
+    beq $t9, 1, hex_ent
+    imprimir_hex_fraccionario($s0, $s2)
+    j fin_loop
+hex_ent:
     imprimir_hexadecimal_entero($s0)
 
-fin_ciclo:
+fin_loop:
     imprimir_texto(salto)
     j menu_loop
+    
+# ---------------------------------------------------------
+# 4. SUBRUTINAS AUXILIARES (¡Aquí van!)
+# ---------------------------------------------------------
+
+sub_print_octal_simple:
+    # Recibe en $a0 el valor entero absoluto a convertir
+    move $t0, $a0
+    bnez $t0, oct_proc_sub
+    li $a0, '0'
+    li $v0, 11
+    syscall
+    jr $ra
+
+oct_proc_sub:
+    la $t4, buffer_bcd
+    li $t5, 0
+oct_loop_sub:
+    div $t0, $t0, 8
+    mfhi $t6
+    sb $t6, 0($t4)
+    addi $t4, $t4, 1
+    addi $t5, $t5, 1
+    bnez $t0, oct_loop_sub
+oct_print_sub:
+    subi $t4, $t4, 1
+    lb $a0, 0($t4)
+    addi $a0, $a0, 48
+    li $v0, 11
+    syscall
+    subi $t5, $t5, 1
+    bnez $t5, oct_print_sub
+    jr $ra
+
+sub_print_hex_simple:
+    # Recibe en $a0 el valor entero absoluto a convertir
+    move $t0, $a0
+    bnez $t0, hex_proc_sub
+    li $a0, '0'
+    li $v0, 11
+    syscall
+    jr $ra
+
+hex_proc_sub:
+    la $t4, buffer_bcd
+    li $t5, 0
+hex_loop_sub:
+    div $t0, $t0, 16
+    mfhi $t6
+    sb $t6, 0($t4)
+    addi $t4, $t4, 1
+    addi $t5, $t5, 1
+    bnez $t0, hex_loop_sub
+hex_print_sub:
+    subi $t4, $t4, 1
+    lb $t6, 0($t4)
+    blt $t6, 10, hex_digit_sub
+    addi $t6, $t6, 55    # A-F
+    j hex_out_sub
+hex_digit_sub:
+    addi $t6, $t6, 48    # 0-9
+hex_out_sub:
+    move $a0, $t6
+    li $v0, 11
+    syscall
+    subi $t5, $t5, 1
+    bnez $t5, hex_print_sub
+    jr $ra    
+    
